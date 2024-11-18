@@ -241,8 +241,6 @@ def train():
         )
 
     if args.strategy == "fsdp":
-        print("\n\n=== FSDPStrategy ===\n\n") # gotzmann
-        print(layers) # gotzmann
         strategy = FSDPStrategy(
             auto_wrap_policy=layers,
             sharding_strategy="FULL_SHARD",
