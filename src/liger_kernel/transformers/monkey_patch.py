@@ -80,8 +80,10 @@ def _patch_layer_norm_module(module, eps=1e-6):
 
 def apply_liger_kernel_to_llama(
     rope: bool = True,
-    cross_entropy: bool = False,
-    fused_linear_cross_entropy: bool = True,
+    # cross_entropy: bool = False,
+    cross_entropy: bool = True, # gotzmann
+    # fused_linear_cross_entropy: bool = True,
+    fused_linear_cross_entropy: bool = False, # gotzmann
     rms_norm: bool = True,
     swiglu: bool = True,
     model: PreTrainedModel = None,
@@ -154,8 +156,10 @@ def apply_liger_kernel_to_llama(
 
 def apply_liger_kernel_to_mllama(
     rope: bool = True,
-    cross_entropy: bool = False,
-    fused_linear_cross_entropy: bool = True,
+    # cross_entropy: bool = False, 
+    cross_entropy: bool = True, # gotzmann
+    # fused_linear_cross_entropy: bool = True,
+    fused_linear_cross_entropy: bool = False, # gotzmann
     layer_norm: bool = True,
     rms_norm: bool = True,
     swiglu: bool = True,
