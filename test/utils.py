@@ -16,20 +16,9 @@ from tokenizers.trainers import BpeTrainer
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers.tokenization_utils_base import BatchEncoding
 
+from liger_kernel.utils import infer_device
 
-def infer_device():
-    """
-    Get current device name based on available devices
-    """
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.xpu.is_available():
-        return "xpu"
-    else:
-        return "cpu"
-
-
-torch_device = infer_device()
+device = infer_device()
 
 
 def set_seed(seed=42):
@@ -43,7 +32,7 @@ def set_seed(seed=42):
     # PyTorch random seed
     torch.manual_seed(seed)
 
-    if torch_device == "cuda":
+    if device == "cuda":
         # If you are using CUDA
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
@@ -51,8 +40,8 @@ def set_seed(seed=42):
         # PyTorch backend settings
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-    elif torch_device == "xpu":
-        # If you ware using intel GPU
+    elif device == "xpu":
+        # If you are using XPU
         torch.xpu.manual_seed(seed)
         torch.xpu.manual_seed_all(seed)
 
@@ -225,9 +214,9 @@ def train_bpe_tokenizer(special_tokens: List[str], unk_token: str = "<|unk|>"):
 
 
 def supports_bfloat16():
-    if torch_device == "cuda":
+    if device == "cuda":
         return torch.cuda.get_device_capability() >= (8, 0)  # Ampere and newer
-    elif torch_device == "xpu":
+    elif device == "xpu":
         return True
     else:
         return False
@@ -355,10 +344,17 @@ def revert_liger_kernel_to_phi3(model_config: MiniModelConfig):
 
 class HFAlignmentLoss:
 
-    def __init__(self, alpha: float = 1.0, beta: float = 0.1, ignore_index: int = -100):
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        beta: float = 0.1,
+        ignore_index: int = -100,
+        use_ref_model: bool = False,
+    ):
         self.alpha = alpha
         self.beta = beta
         self.ignore_index = ignore_index
+        self.use_ref_model = use_ref_model
 
     @abstractmethod
     def alignment_loss(self):
@@ -399,6 +395,27 @@ class HFAlignmentLoss:
             return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
         else:
             return (per_token_logps * loss_mask).sum(-1)
+
+    def get_ref_logps(
+        self,
+        _input: torch.FloatTensor,
+        ref_weight: torch.FloatTensor,
+        target: torch.LongTensor,
+        ref_bias: torch.FloatTensor,
+        average_log_prob: bool = True,
+    ):
+        """Compute the log probabilities of the given labels under the given reference model."""
+
+        ref_logits = _input @ ref_weight.t()
+        if ref_bias is not None:
+            ref_logits = ref_logits + ref_bias
+        ref_all_logps = self.get_batch_logps(
+            ref_logits, target, average_log_prob=average_log_prob
+        )
+        return (
+            ref_all_logps[: _input.shape[0] // 2],
+            ref_all_logps[_input.shape[0] // 2 :],
+        )
 
     def concatenated_forward(
         self,
@@ -458,11 +475,12 @@ class HFAlignmentLoss:
 
     def get_batch_loss_metrics(
         self,
-        _input: torch.FloatTensor,
         weight: torch.FloatTensor,
+        _input: torch.FloatTensor,
         target: torch.LongTensor,
         bias: torch.FloatTensor = None,
-        alpha: float = 1.0,
+        ref_weight: torch.FloatTensor = None,
+        ref_bias: torch.FloatTensor = None,
         average_log_prob: bool = True,
     ):
         """Compute the ORPO loss and other metrics for the given batch of inputs for train or test."""
@@ -478,7 +496,16 @@ class HFAlignmentLoss:
             policy_nll_loss,
         ) = forward_output[:5]
 
-        losses = self.alignment_loss(policy_chosen_logps, policy_rejected_logps)
+        loss_kwargs = {}
+        if self.use_ref_model:
+            ref_chosen_logps, ref_rejected_logps = self.get_ref_logps(
+                _input, ref_weight, target, ref_bias, average_log_prob
+            )
+            loss_kwargs["ref_chosen_logps"] = ref_chosen_logps
+            loss_kwargs["ref_rejected_logps"] = ref_rejected_logps
+        losses = self.alignment_loss(
+            policy_chosen_logps, policy_rejected_logps, **loss_kwargs
+        )
         # full loss
-        loss = policy_nll_loss * alpha - losses.mean()
+        loss = policy_nll_loss * self.alpha - losses.mean()
         return loss
