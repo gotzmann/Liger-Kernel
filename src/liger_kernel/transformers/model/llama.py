@@ -38,8 +38,6 @@ def lce_forward_deprecated(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    # num_logits_to_keep: int = 0, # gotzmann | https://github.com/linkedin/Liger-Kernel/pull/322/files
-    # **loss_kwargs, # gotzmann | https://github.com/linkedin/Liger-Kernel/pull/322/files
 ) -> Union[Tuple, CausalLMOutputWithPast]:
     r"""
     Copy paste llama forward but replace torch cross entropy with liger fused linear cross entropy
@@ -112,16 +110,6 @@ def lce_forward_deprecated(
 
         lce = LigerFusedLinearCrossEntropyLoss()
         loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)
-
-			
-		# gotzmann
-        # loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels) # gotzmann | https://github.com/linkedin/Liger-Kernel/pull/322/files		
-		# lce_kwargs = {}
-        # if "num_items_in_batch" in loss_kwargs:
-        #    lce_kwargs["reduction"] = "sum"
-        # loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels, **lce_kwargs)
-        # if "num_items_in_batch" in loss_kwargs:
-        #    loss = loss / loss_kwargs["num_items_in_batch"]	
 
     else:
         if self.config.pretraining_tp > 1:
