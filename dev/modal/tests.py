@@ -1,11 +1,17 @@
+import os
 from pathlib import Path
 
 import modal
 
 ROOT_PATH = Path(__file__).parent.parent.parent
 
+# REBUILD_IMAGE is an environment variable that is set to "true" in the nightly build
+REBUILD_IMAGE = os.getenv("REBUILD_IMAGE") is not None
+
 image = modal.Image.debian_slim().pip_install_from_pyproject(
-    ROOT_PATH / "pyproject.toml", optional_dependencies=["dev"]
+    ROOT_PATH / "pyproject.toml",
+    optional_dependencies=["dev"],
+    force_build=REBUILD_IMAGE,
 )
 
 app = modal.App("liger_tests", image=image)
